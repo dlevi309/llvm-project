@@ -38,31 +38,30 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$HOME/my-llvm-project/" \
             ../llvm
           make -j$(nproc --all) install
-          cd ../
 
       - name: Build compiler-rt
         run: |
           mkdir build-compiler-rt && cd build-compiler-rt
           cmake -G "Unix Makefiles" -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" \
+            -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_INSTALL_PREFIX="$HOME/my-llvm-project/" \
             ../llvm
-          make -j$(nproc --all) install
-          cd ../ && mv $HOME/my-llvm-project/* $HOME/linux/iphone/
+          make -j$(nproc --all) install-compiler-rt
+          mv $HOME/my-llvm-project/* $HOME/linux/iphone/
 
       - name: Build ldid
         run: |
           git clone https://github.com/ProcursusTeam/ldid
           cd ldid
           make -j$(nproc --all) DESTDIR="$HOME/linux/iphone/" PREFIX="" install
-          cd ../
 
       - name: Build tapi
         run: |
           git clone https://github.com/tpoechtrager/apple-libtapi
           mkdir -p $HOME/cctools && cd apple-libtapi
           INSTALLPREFIX="$HOME/cctools/" ./build.sh
-          make -C build -j$(nproc --all) install-libtapi install-tapi-headers install-tapi && cd ../
+          make -C build -j$(nproc --all) install-libtapi install-tapi-headers install-tapi
 
       - name: Build cctools
         run: |
@@ -76,11 +75,12 @@ jobs:
             CC="$HOME/linux/iphone/bin/clang" \
             CXX="$HOME/linux/iphone/bin/clang++"
           make -j$(nproc --all) install
-          cd $HOME && cp -a $HOME/cctools/* $HOME/linux/iphone/
+          cp -a $HOME/cctools/* $HOME/linux/iphone/
 
       - name: Prep artifact
         run: |
-          tar -cJvf iOSToolchain.tar.xz linux/iphone
+          cd $HOME
+          tar -cJvf iOSToolchain.tar.xz linux/iphone/
 
       - name: Upload artifact
         uses: actions/upload-artifact@main
