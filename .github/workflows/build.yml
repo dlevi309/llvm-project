@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  - push
+  - workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - name: LLVM/Clang Prep
+        run: |
+          sudo apt install build-essential \
+            cmake \
+            coreutils \
+            git \
+            libplist-dev \
+            libssl-dev \
+            make \
+            pkg-config \
+            python3 \
+            zlib1g-dev
+          mkdir -p $HOME/my-llvm-project $HOME/linux/iphone/
+
+      - name: Build LLVM/Clang
+        run: |
+          mkdir build && cd build
+          cmake -G "Unix Makefiles" -DLLVM_ENABLE_PROJECTS=clang \
+            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DLLVM_ENABLE_Z3_SOLVER=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_WARNINGS=OFF \
+            -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
+            -DLLVM_INCLUDE_TESTS:BOOL=NO \
+            -DCLANG_INCLUDE_TESTS:BOOL=NO \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_INSTALL_PREFIX="$HOME/my-llvm-project/" \
+            ../llvm
+          make -j$(nproc --all) install
+          cd ../
+
+      - name: Build compiler-rt
+        run: |
+          mkdir build-compiler-rt && cd build-compiler-rt
+          cmake -G "Unix Makefiles" -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_INSTALL_PREFIX="$HOME/my-llvm-project/" \
+            ../llvm
+          make -j$(nproc --all) install
+          cd ../ && mv $HOME/my-llvm-project/* $HOME/linux/iphone/
+
+      - name: Build ldid
+        run: |
+          git clone https://github.com/ProcursusTeam/ldid
+          cd ldid
+          make -j$(nproc --all) DESTDIR="$HOME/linux/iphone/" PREFIX="" install
+          cd ../
+
+      - name: Build tapi
+        run: |
+          git clone https://github.com/tpoechtrager/apple-libtapi
+          mkdir -p $HOME/cctools && cd apple-libtapi
+          INSTALLPREFIX="$HOME/cctools/" ./build.sh
+          make -C build -j$(nproc --all) install-libtapi install-tapi-headers install-tapi && cd ../
+
+      - name: Build cctools
+        run: |
+          git clone https://github.com/tpoechtrager/cctools-port
+          cd cctools-port/cctools
+          ./configure --prefix="$HOME/cctools/" \
+            --target=aarch64-apple-darwin14 \
+            --enable-tapi-support \
+            --with-libtapi="$HOME/cctools/" \
+            --program-transform-name="s/^aarch64-apple-darwin14-//" \
+            CC="$HOME/linux/iphone/bin/clang" \
+            CXX="$HOME/linux/iphone/bin/clang++"
+          make -j$(nproc --all) install
+          cd $HOME && cp -a $HOME/cctools/* $HOME/linux/iphone/
+
+      - name: Prep artifact
+        run: |
+          tar -cJvf iOSToolchain.tar.xz linux/iphone
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: iOSToolchain-Container
+          path: ~/iOSToolchain.tar.xz
